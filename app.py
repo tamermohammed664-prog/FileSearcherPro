@@ -14,8 +14,8 @@ class FileSearcherPro:
     def __init__(self, root):
         self.root = root
         self.root.title("File Searcher Pro")
-        self.root.geometry("760x680")
-        self.root.minsize(660, 680)
+        self.root.geometry("650x680")
+        self.root.minsize(620, 680)
         if isinstance(self.root, ctk.CTk):
             self.root.configure(fg_color="#0d1117")
         else:
@@ -32,13 +32,13 @@ class FileSearcherPro:
         self.search_subfolders = tk.BooleanVar(value=True)
         self.case_sensitive = tk.BooleanVar()
         self.merge_pdf = tk.BooleanVar()  # الميزة الجديدة 1
-        self.export_found_paths = tk.BooleanVar()
         
         self.extensions = tk.StringVar(value=".jpg, .jpeg, .pdf, .tif, .tiff, .png")
         self.event_queue = queue.Queue()
         self.cancel_event = threading.Event()
         self.worker_thread = None
         self.path_controls = []
+        self.found_source_paths = []
         self.log_messages = []
 
         self.configure_styles()
@@ -109,11 +109,11 @@ class FileSearcherPro:
             "font": self.font_body,
         }
         self.organize_checkbox = ctk.CTkCheckBox(self.options_frame, text="Organize in customer folders", variable=self.organize_customer, **checkbox_style)
-        self.organize_checkbox.grid(row=0, column=0, sticky="w", padx=(0, 14), pady=4)
+        self.organize_checkbox.grid(row=0, column=0, sticky="w", padx=(0, 8), pady=4)
         self.move_checkbox = ctk.CTkCheckBox(self.options_frame, text="Move files instead of copying", variable=self.move_files, **checkbox_style)
         self.move_checkbox.grid(row=0, column=1, sticky="w", pady=4)
         self.exact_checkbox = ctk.CTkCheckBox(self.options_frame, text="Exact filename match", variable=self.exact_match, **checkbox_style)
-        self.exact_checkbox.grid(row=1, column=0, sticky="w", padx=(0, 14), pady=4)
+        self.exact_checkbox.grid(row=1, column=0, sticky="w", padx=(0, 8), pady=4)
         self.subfolders_checkbox = ctk.CTkCheckBox(self.options_frame, text="Search subfolders", variable=self.search_subfolders, **checkbox_style)
         self.subfolders_checkbox.grid(row=1, column=1, sticky="w", pady=4)
         self.merge_checkbox = ctk.CTkCheckBox(
@@ -123,14 +123,7 @@ class FileSearcherPro:
             **checkbox_style,
         )
         self.merge_checkbox.grid(row=2, column=0, columnspan=2, sticky="w", pady=4)
-        self.export_paths_checkbox = ctk.CTkCheckBox(
-            self.options_frame,
-            text="Export found source paths",
-            variable=self.export_found_paths,
-            **checkbox_style,
-        )
-        self.export_paths_checkbox.grid(row=3, column=0, columnspan=2, sticky="w", pady=4)
-        self.options_frame.grid_columnconfigure(0, weight=0)
+        self.options_frame.grid_columnconfigure(0, weight=1)
         self.options_frame.grid_columnconfigure(1, weight=1)
         self.merge_pdf.trace_add("write", self.update_mode_controls)
 
@@ -141,7 +134,7 @@ class FileSearcherPro:
         self.extensions_entry = ctk.CTkEntry(
             self.extensions_frame,
             textvariable=self.extensions,
-            width=300,
+            width=230,
             height=38,
             corner_radius=9,
             border_width=1,
@@ -150,7 +143,7 @@ class FileSearcherPro:
             text_color=self.colors["text"],
             font=self.font_body,
         )
-        self.extensions_entry.pack(side="left", fill="x", expand=True)
+        self.extensions_entry.pack(side="left")
         self.case_checkbox = ctk.CTkCheckBox(self.extensions_frame, text="Case sensitive", variable=self.case_sensitive, **checkbox_style)
         self.case_checkbox.pack(side="left", padx=(14, 0))
 
@@ -183,6 +176,21 @@ class FileSearcherPro:
             state=tk.DISABLED,
         )
         self.cancel_button.pack(side="left", padx=(9, 0))
+        self.export_paths_button = ctk.CTkButton(
+            action_frame,
+            text="EXPORT PATHS",
+            width=116,
+            height=40,
+            corner_radius=10,
+            fg_color=self.colors["accent"],
+            hover_color=self.colors["accent_hover"],
+            text_color="#ffffff",
+            text_color_disabled=self.colors["muted"],
+            font=ctk.CTkFont(family="TkDefaultFont", size=10, weight="bold"),
+            command=self.export_found_paths,
+            state=tk.DISABLED,
+        )
+        self.export_paths_button.pack(side="left", padx=(9, 0))
         self.progress = ctk.CTkProgressBar(
             self.main_frame,
             height=9,
@@ -264,6 +272,7 @@ class FileSearcherPro:
         entry = ctk.CTkEntry(
             frame,
             textvariable=var,
+            width=330,
             height=38,
             corner_radius=9,
             border_width=1,
@@ -273,11 +282,11 @@ class FileSearcherPro:
             placeholder_text=f"Select {btn_text.lower()}...",
             font=self.font_body,
         )
-        entry.pack(side="left", fill="x", expand=True)
+        entry.pack(side="left")
         button = ctk.CTkButton(
             frame,
             text="Browse",
-            width=92,
+            width=82,
             height=38,
             corner_radius=9,
             fg_color=self.colors["accent"],
@@ -286,7 +295,7 @@ class FileSearcherPro:
             font=self.font_small,
             command=cmd,
         )
-        button.pack(side="left", padx=(9, 0))
+        button.pack(side="left", padx=(7, 0))
         self.path_controls.extend((entry, button))
 
     def browse_names_list(self):
@@ -300,6 +309,27 @@ class FileSearcherPro:
     def browse_dest_path(self):
         folder = filedialog.askdirectory()
         if folder: self.dest_path.set(folder)
+
+    def export_found_paths(self):
+        if not self.found_source_paths:
+            messagebox.showinfo("No found files", "There are no found file paths to export.")
+            return
+
+        destination = self.dest_path.get()
+        if not destination:
+            messagebox.showerror("Export failed", "Choose a save folder before exporting paths.")
+            return
+
+        output_path = os.path.join(destination, "found_files_paths.txt")
+        try:
+            os.makedirs(destination, exist_ok=True)
+            with open(output_path, "w", encoding="utf-8") as paths_file:
+                paths_file.write("\n".join(self.found_source_paths) + "\n")
+        except OSError as error:
+            messagebox.showerror("Export failed", f"Could not write {output_path}: {error}")
+            return
+
+        messagebox.showinfo("Paths exported", f"Found paths saved to:\n{output_path}")
 
     def log(self, text):
         self.last_log_message = str(text)
@@ -372,9 +402,10 @@ class FileSearcherPro:
             "merge_pdf": self.merge_pdf.get(),
             "organize_customer": self.organize_customer.get(),
             "move_files": self.move_files.get(),
-            "export_found_paths": self.export_found_paths.get(),
         }
         self.cancel_event.clear()
+        self.found_source_paths = []
+        self.export_paths_button.configure(state=tk.DISABLED)
         self.set_status("Status: Starting...")
         self._set_input_controls_enabled(False)
         self.start_button.configure(state=tk.DISABLED)
@@ -397,8 +428,8 @@ class FileSearcherPro:
         found_count = 0
         missing_count = 0
         counted_paths = set()
-        exported_paths = []
-        exported_path_keys = set()
+        found_source_paths = []
+        found_path_keys = set()
         reserved_destinations = set()
         handled_moves = set()
 
@@ -468,6 +499,10 @@ class FileSearcherPro:
                             matched_files.append((item, found_path))
                             report_data.append([item, os.path.basename(found_path), found_path])
                             found_key = os.path.normcase(os.path.abspath(found_path))
+                            if found_key not in found_path_keys:
+                                found_path_keys.add(found_key)
+                                found_source_paths.append(found_path)
+                            found_key = os.path.normcase(os.path.abspath(found_path))
                             if found_key not in counted_paths:
                                 counted_paths.add(found_key)
                                 found_count += 1
@@ -488,11 +523,6 @@ class FileSearcherPro:
                     )
                     try:
                         self.create_pdf_from_files([path for _, path in matched_files], pdf_path)
-                        for _, source_path in matched_files:
-                            source_key = os.path.normcase(os.path.abspath(source_path))
-                            if source_key not in exported_path_keys:
-                                exported_path_keys.add(source_key)
-                                exported_paths.append(source_path)
                         emit_log(f"[CREATED] {pdf_path}")
                     except Exception as error:
                         errors += 1
@@ -522,9 +552,6 @@ class FileSearcherPro:
                                 handled_moves.add(source_key)
                             else:
                                 shutil.copy2(source_path, destination_path)
-                            if source_key not in exported_path_keys:
-                                exported_path_keys.add(source_key)
-                                exported_paths.append(source_path)
                             emit_log(f"[SAVED] {destination_path}")
                         except OSError as error:
                             errors += 1
@@ -540,18 +567,13 @@ class FileSearcherPro:
                 if not_found_items:
                     not_found_file.write("\n".join(not_found_items) + "\n")
             emit_log(f"Location report saved: {report_path}")
-            if options["export_found_paths"]:
-                paths_report = os.path.join(dest_dir, "found_files_paths.txt")
-                with open(paths_report, "w", encoding="utf-8") as paths_file:
-                    if exported_paths:
-                        paths_file.write("\n".join(exported_paths) + "\n")
-                emit_log(f"Found paths saved: {paths_report}")
 
             outcome = "cancelled" if self.cancel_event.is_set() else "finished"
             self.event_queue.put((outcome, {
                 "errors": errors,
                 "found_count": found_count,
                 "missing_count": missing_count,
+                "found_paths": found_source_paths,
             }))
         except Exception as error:
             self.event_queue.put(("failed", str(error)))
@@ -581,6 +603,10 @@ class FileSearcherPro:
                 self.set_status(f"Status: {status}", self.colors["accent_hover"])
             elif event in ("finished", "cancelled"):
                 errors = data["errors"]
+                self.found_source_paths = data["found_paths"]
+                self.export_paths_button.configure(
+                    state=tk.NORMAL if self.found_source_paths else tk.DISABLED
+                )
                 status_text = "Status: Cancelled" if event == "cancelled" else f"Status: Completed ({errors} errors)"
                 self.set_status(status_text)
                 summary = (
