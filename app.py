@@ -542,6 +542,12 @@ class FileSearcherPro:
 
                 self.event_queue.put(("progress", (idx + 1, max(total_lines, 1), f"Processing line {idx + 1}/{total_lines}")))
 
+            not_found_path = os.path.join(dest_dir, "not_found_items.txt")
+            with open(not_found_path, "w", encoding="utf-8") as not_found_file:
+                if not_found_lines:
+                    not_found_file.write("\n".join(not_found_lines) + "\n")
+            emit_log(f"Missing items saved: {not_found_path}")
+
             if options["export_found_paths"]:
                 paths_report = os.path.join(dest_dir, "found_files_paths.txt")
                 with open(paths_report, "w", encoding="utf-8") as paths_file:
