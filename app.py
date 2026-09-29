@@ -14,8 +14,8 @@ class FileSearcherPro:
     def __init__(self, root):
         self.root = root
         self.root.title("File Searcher Pro")
-        self.root.geometry("760x860")
-        self.root.minsize(660, 700)
+        self.root.geometry("760x680")
+        self.root.minsize(660, 680)
         if isinstance(self.root, ctk.CTk):
             self.root.configure(fg_color="#0d1117")
         else:
@@ -32,13 +32,14 @@ class FileSearcherPro:
         self.search_subfolders = tk.BooleanVar(value=True)
         self.case_sensitive = tk.BooleanVar()
         self.merge_pdf = tk.BooleanVar()  # الميزة الجديدة 1
-        self.dry_run = tk.BooleanVar()
+        self.export_found_paths = tk.BooleanVar()
         
         self.extensions = tk.StringVar(value=".jpg, .jpeg, .pdf, .tif, .tiff, .png")
         self.event_queue = queue.Queue()
         self.cancel_event = threading.Event()
         self.worker_thread = None
         self.path_controls = []
+        self.log_messages = []
 
         self.configure_styles()
         self.build_gui()
@@ -71,13 +72,11 @@ class FileSearcherPro:
         self.progress_mode = "determinate"
 
     def build_gui(self):
-        background = self.colors["background"]
-        surface = self.colors["surface"]
         self.main_frame = ctk.CTkFrame(self.root, fg_color="transparent", corner_radius=0)
-        self.main_frame.pack(fill="both", expand=True, padx=22, pady=18)
+        self.main_frame.pack(fill="both", expand=True, padx=18, pady=10)
 
         header = ctk.CTkFrame(self.main_frame, fg_color="transparent", corner_radius=0)
-        header.pack(fill="x", pady=(0, 16))
+        header.pack(fill="x", pady=(0, 8))
         title_block = ctk.CTkFrame(header, fg_color="transparent", corner_radius=0)
         title_block.pack(side="left", fill="x", expand=True)
         ctk.CTkLabel(title_block, text="File Searcher Pro", text_color=self.colors["text"], font=self.font_title).pack(anchor="w")
@@ -124,8 +123,15 @@ class FileSearcherPro:
             **checkbox_style,
         )
         self.merge_checkbox.grid(row=2, column=0, columnspan=2, sticky="w", pady=4)
-        self.dry_run_checkbox = ctk.CTkCheckBox(self.options_frame, text="Preview only; do not change files", variable=self.dry_run, **checkbox_style)
-        self.dry_run_checkbox.grid(row=3, column=0, columnspan=2, sticky="w", pady=4)
+        self.export_paths_checkbox = ctk.CTkCheckBox(
+            self.options_frame,
+            text="Export found source paths",
+            variable=self.export_found_paths,
+            **checkbox_style,
+        )
+        self.export_paths_checkbox.grid(row=3, column=0, columnspan=2, sticky="w", pady=4)
+        self.options_frame.grid_columnconfigure(0, weight=0)
+        self.options_frame.grid_columnconfigure(1, weight=1)
         self.merge_pdf.trace_add("write", self.update_mode_controls)
 
         _, _, extensions_body = self.create_section(self.main_frame, "03   File types")
@@ -149,11 +155,11 @@ class FileSearcherPro:
         self.case_checkbox.pack(side="left", padx=(14, 0))
 
         action_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent", corner_radius=0)
-        action_frame.pack(fill="x", pady=(0, 13))
+        action_frame.pack(fill="x", pady=(1, 0))
         self.start_button = ctk.CTkButton(
             action_frame,
             text="START SEARCH",
-            height=44,
+            height=40,
             corner_radius=10,
             fg_color=self.colors["start"],
             hover_color=self.colors["start_hover"],
@@ -166,7 +172,7 @@ class FileSearcherPro:
             action_frame,
             text="CANCEL",
             width=112,
-            height=44,
+            height=40,
             corner_radius=10,
             fg_color=self.colors["cancel"],
             hover_color=self.colors["cancel_hover"],
@@ -177,75 +183,16 @@ class FileSearcherPro:
             state=tk.DISABLED,
         )
         self.cancel_button.pack(side="left", padx=(9, 0))
-
-        status_card = ctk.CTkFrame(
-            self.main_frame,
-            fg_color=self.colors["surface"],
-            corner_radius=12,
-            border_width=1,
-            border_color=self.colors["border"],
-        )
-        status_card.pack(fill="x", pady=(0, 13))
-        status_frame = ctk.CTkFrame(status_card, fg_color="transparent", corner_radius=0)
-        status_frame.pack(fill="x", padx=15, pady=(12, 8))
-        self.status_indicator = ctk.CTkFrame(status_frame, width=9, height=9, corner_radius=5, fg_color=self.colors["success"])
-        self.status_indicator.pack(side="left", padx=(1, 9))
-        self.status_indicator.pack_propagate(False)
-        self.lbl_status = ctk.CTkLabel(status_frame, text="Status: Ready", text_color=self.colors["text"], font=self.font_body)
-        self.lbl_status.pack(side="left")
         self.progress = ctk.CTkProgressBar(
-            status_card,
+            self.main_frame,
             height=9,
             corner_radius=6,
             mode="determinate",
             fg_color=self.colors["surface_alt"],
             progress_color=self.colors["accent"],
         )
-        self.progress.pack(fill="x", padx=15, pady=(0, 13))
+        self.progress.pack(fill="x", pady=(8, 0))
         self.progress.set(0)
-
-        _, log_header, log_body = self.create_section(self.main_frame, "04   Activity", expand=True)
-        ctk.CTkButton(
-            log_header,
-            text="Clear log",
-            width=80,
-            height=28,
-            corner_radius=8,
-            fg_color=self.colors["surface_alt"],
-            hover_color=self.colors["border"],
-            text_color=self.colors["text"],
-            font=self.font_small,
-            command=self.clear_log,
-        ).pack(side="right")
-        log_frame = ctk.CTkFrame(log_body, fg_color=self.colors["input"], corner_radius=10)
-        log_frame.pack(fill="both", expand=True)
-        self.txt_log = tk.Text(
-            log_frame,
-            bg=self.colors["input"],
-            fg=self.colors["text"],
-            insertbackground=self.colors["text"],
-            selectbackground="#264f78",
-            selectforeground="#ffffff",
-            font=("TkFixedFont", 10),
-            wrap="word",
-            relief="flat",
-            padx=12,
-            pady=10,
-            state=tk.DISABLED,
-            highlightthickness=0,
-        )
-        scrollbar = ctk.CTkScrollbar(log_frame, orientation="vertical", command=self.txt_log.yview, fg_color=self.colors["input"], button_color=self.colors["surface_alt"], button_hover_color=self.colors["border"])
-        self.txt_log.configure(yscrollcommand=scrollbar.set)
-        self.txt_log.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=8)
-        scrollbar.pack(side="right", fill="y", padx=(0, 5), pady=6)
-        self.txt_log.tag_configure("default", foreground=self.colors["text"])
-        self.txt_log.tag_configure("found", foreground=self.colors["success"])
-        self.txt_log.tag_configure("not_found", foreground=self.colors["warning"])
-        self.txt_log.tag_configure("error", foreground=self.colors["error"])
-        self.txt_log.tag_configure("preview", foreground=self.colors["accent_hover"])
-        self.txt_log.tag_configure("skipped", foreground=self.colors["muted"])
-
-        ctk.CTkLabel(self.main_frame, text="Original files stay untouched unless Move is enabled.", text_color=self.colors["muted"], font=self.font_small).pack(anchor="w", pady=(0, 1))
         self.update_mode_controls()
 
     def create_temo_badge(self, parent):
@@ -355,29 +302,10 @@ class FileSearcherPro:
         if folder: self.dest_path.set(folder)
 
     def log(self, text):
-        self.txt_log.configure(state=tk.NORMAL)
-        for line in str(text).splitlines() or [""]:
-            if line.startswith("[FOUND]") or line.startswith("[SAVED]") or line.startswith("[CREATED]"):
-                tag = "found"
-            elif line.startswith("[NOT FOUND]"):
-                tag = "not_found"
-            elif line.startswith("[ERROR]") or "could not read folder" in line.lower():
-                tag = "error"
-            elif line.startswith("[PREVIEW]"):
-                tag = "preview"
-            elif line.startswith("[SKIPPED]"):
-                tag = "skipped"
-            else:
-                tag = "default"
-            self.txt_log.insert(tk.END, line + "\n", tag)
-        self.txt_log.see(tk.END)
-
-        self.txt_log.configure(state=tk.DISABLED)
+        self.last_log_message = str(text)
 
     def clear_log(self):
-        self.txt_log.configure(state=tk.NORMAL)
-        self.txt_log.delete("1.0", tk.END)
-        self.txt_log.configure(state=tk.DISABLED)
+        self.last_log_message = ""
 
     def update_mode_controls(self, *_args):
         state = tk.DISABLED if self.merge_pdf.get() else tk.NORMAL
@@ -413,8 +341,7 @@ class FileSearcherPro:
                 color = self.colors["success"]
             else:
                 color = self.colors["accent_hover"]
-        self.lbl_status.configure(text=text)
-        self.status_indicator.configure(fg_color=color)
+        self.current_status = text
 
     def start_process(self):
         if self.worker_thread and self.worker_thread.is_alive():
@@ -445,9 +372,10 @@ class FileSearcherPro:
             "merge_pdf": self.merge_pdf.get(),
             "organize_customer": self.organize_customer.get(),
             "move_files": self.move_files.get(),
-            "dry_run": self.dry_run.get(),
+            "export_found_paths": self.export_found_paths.get(),
         }
         self.cancel_event.clear()
+        self.set_status("Status: Starting...")
         self._set_input_controls_enabled(False)
         self.start_button.configure(state=tk.DISABLED)
         self.cancel_button.configure(state=tk.NORMAL)
@@ -466,7 +394,11 @@ class FileSearcherPro:
     def _process_files(self, names_file, search_dir, dest_dir, options):
         emit_log = lambda text: self.event_queue.put(("log", text))
         errors = 0
-        dry_run = options["dry_run"]
+        found_count = 0
+        missing_count = 0
+        counted_paths = set()
+        exported_paths = []
+        exported_path_keys = set()
         reserved_destinations = set()
         handled_moves = set()
 
@@ -475,8 +407,7 @@ class FileSearcherPro:
             with open(names_file, "r", encoding="utf-8") as names_handle:
                 lines = [line.strip() for line in names_handle if line.strip()]
 
-            if not dry_run:
-                os.makedirs(dest_dir, exist_ok=True)
+            os.makedirs(dest_dir, exist_ok=True)
 
             emit_log("Indexing files in search path...")
             self.event_queue.put(("indeterminate", "Indexing files..."))
@@ -509,7 +440,15 @@ class FileSearcherPro:
                 if self.cancel_event.is_set():
                     break
 
-                items = [item.strip() for item in line.split(",") if item.strip()]
+                fields = [field.strip() for field in next(csv.reader([line])) if field.strip()]
+                client_name = None
+                if options["organize_customer"]:
+                    numeric_fields = [field for field in fields if field.isdigit()]
+                    client_fields = [field for field in fields if not field.isdigit()]
+                    client_name = " ".join(client_fields).strip() or (fields[0] if fields else None)
+                    items = numeric_fields or fields
+                else:
+                    items = fields
                 matched_files = []
                 for item in items:
                     if self.cancel_event.is_set():
@@ -528,9 +467,14 @@ class FileSearcherPro:
                         for found_path in found_paths:
                             matched_files.append((item, found_path))
                             report_data.append([item, os.path.basename(found_path), found_path])
+                            found_key = os.path.normcase(os.path.abspath(found_path))
+                            if found_key not in counted_paths:
+                                counted_paths.add(found_key)
+                                found_count += 1
                             emit_log(f"[FOUND] {item} -> {found_path}")
                     else:
                         not_found_items.append(item)
+                        missing_count += 1
                         emit_log(f"[NOT FOUND] {item}")
 
                 if self.cancel_event.is_set():
@@ -542,15 +486,17 @@ class FileSearcherPro:
                         os.path.join(dest_dir, f"{safe_item}.pdf"),
                         reserved_destinations,
                     )
-                    if dry_run:
-                        emit_log(f"[PREVIEW] Merge {len(matched_files)} file(s) -> {pdf_path}")
-                    else:
-                        try:
-                            self.create_pdf_from_files([path for _, path in matched_files], pdf_path)
-                            emit_log(f"[CREATED] {pdf_path}")
-                        except Exception as error:
-                            errors += 1
-                            emit_log(f"[ERROR] Could not create {pdf_path}: {error}")
+                    try:
+                        self.create_pdf_from_files([path for _, path in matched_files], pdf_path)
+                        for _, source_path in matched_files:
+                            source_key = os.path.normcase(os.path.abspath(source_path))
+                            if source_key not in exported_path_keys:
+                                exported_path_keys.add(source_key)
+                                exported_paths.append(source_path)
+                        emit_log(f"[CREATED] {pdf_path}")
+                    except Exception as error:
+                        errors += 1
+                        emit_log(f"[ERROR] Could not create {pdf_path}: {error}")
 
                 elif not options["merge_pdf"]:
                     for item, source_path in matched_files:
@@ -559,7 +505,7 @@ class FileSearcherPro:
                             emit_log(f"[SKIPPED] Already moved: {source_path}")
                             continue
 
-                        folder_name = self._safe_component(item)
+                        folder_name = self._safe_component(client_name or item)
                         target_folder = os.path.join(dest_dir, folder_name) if options["organize_customer"] else dest_dir
                         destination_path = os.path.join(target_folder, os.path.basename(source_path))
                         if os.path.normcase(os.path.abspath(source_path)) == os.path.normcase(os.path.abspath(destination_path)):
@@ -569,13 +515,6 @@ class FileSearcherPro:
                             continue
                         destination_path = self._unique_destination(destination_path, reserved_destinations)
 
-                        if dry_run:
-                            operation = "Move" if options["move_files"] else "Copy"
-                            emit_log(f"[PREVIEW] {operation} {source_path} -> {destination_path}")
-                            if options["move_files"]:
-                                handled_moves.add(source_key)
-                            continue
-
                         try:
                             os.makedirs(target_folder, exist_ok=True)
                             if options["move_files"]:
@@ -583,6 +522,9 @@ class FileSearcherPro:
                                 handled_moves.add(source_key)
                             else:
                                 shutil.copy2(source_path, destination_path)
+                            if source_key not in exported_path_keys:
+                                exported_path_keys.add(source_key)
+                                exported_paths.append(source_path)
                             emit_log(f"[SAVED] {destination_path}")
                         except OSError as error:
                             errors += 1
@@ -590,20 +532,27 @@ class FileSearcherPro:
 
                 self.event_queue.put(("progress", (idx + 1, max(total_lines, 1), f"Processing line {idx + 1}/{total_lines}")))
 
-            if not dry_run:
-                report_path = os.path.join(dest_dir, "files_location_report.csv")
-                with open(report_path, "w", newline="", encoding="utf-8-sig") as report_file:
-                    csv.writer(report_file).writerows(report_data)
-                not_found_path = os.path.join(dest_dir, "not_found_items.txt")
-                with open(not_found_path, "w", encoding="utf-8") as not_found_file:
-                    if not_found_items:
-                        not_found_file.write("\n".join(not_found_items) + "\n")
-                emit_log(f"Location report saved: {report_path}")
-            else:
-                emit_log("Preview only: no files or reports were written.")
+            report_path = os.path.join(dest_dir, "files_location_report.csv")
+            with open(report_path, "w", newline="", encoding="utf-8-sig") as report_file:
+                csv.writer(report_file).writerows(report_data)
+            not_found_path = os.path.join(dest_dir, "not_found_items.txt")
+            with open(not_found_path, "w", encoding="utf-8") as not_found_file:
+                if not_found_items:
+                    not_found_file.write("\n".join(not_found_items) + "\n")
+            emit_log(f"Location report saved: {report_path}")
+            if options["export_found_paths"]:
+                paths_report = os.path.join(dest_dir, "found_files_paths.txt")
+                with open(paths_report, "w", encoding="utf-8") as paths_file:
+                    if exported_paths:
+                        paths_file.write("\n".join(exported_paths) + "\n")
+                emit_log(f"Found paths saved: {paths_report}")
 
             outcome = "cancelled" if self.cancel_event.is_set() else "finished"
-            self.event_queue.put((outcome, {"errors": errors, "dry_run": dry_run}))
+            self.event_queue.put((outcome, {
+                "errors": errors,
+                "found_count": found_count,
+                "missing_count": missing_count,
+            }))
         except Exception as error:
             self.event_queue.put(("failed", str(error)))
 
@@ -634,14 +583,18 @@ class FileSearcherPro:
                 errors = data["errors"]
                 status_text = "Status: Cancelled" if event == "cancelled" else f"Status: Completed ({errors} errors)"
                 self.set_status(status_text)
+                summary = (
+                    f"Files found: {data['found_count']}\n"
+                    f"Items with no matching files: {data['missing_count']}"
+                )
+                if errors:
+                    summary += f"\nFile errors: {errors}"
                 if event == "cancelled":
-                    messagebox.showinfo("Cancelled", "Processing stopped. Completed results were kept.")
+                    messagebox.showinfo("Cancelled", f"Processing stopped. Completed results were kept.\n\n{summary}")
                 elif errors:
-                    messagebox.showwarning("Completed with errors", f"Processing finished with {errors} file error(s). See the log for details.")
-                elif data["dry_run"]:
-                    messagebox.showinfo("Preview complete", "Preview finished. No files were changed.")
+                    messagebox.showwarning("Completed with errors", summary)
                 else:
-                    messagebox.showinfo("Done", "Turbo Search Completed Successfully!")
+                    messagebox.showinfo("Done", summary)
                 finished = True
             elif event == "failed":
                 self.set_status("Status: Failed")
@@ -656,7 +609,7 @@ class FileSearcherPro:
                 self.progress.stop()
             self.progress.configure(mode="determinate")
             self.progress_mode = "determinate"
-            if self.lbl_status.cget("text").startswith("Status: Completed"):
+            if not self.cancel_event.is_set():
                 self.progress.set(1)
             self._set_input_controls_enabled(True)
         elif (self.worker_thread and self.worker_thread.is_alive()) or not self.event_queue.empty():
