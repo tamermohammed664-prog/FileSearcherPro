@@ -401,6 +401,7 @@ class FileSearcherPro:
         found_count = 0
         missing_count = 0
         counted_paths = set()
+        not_found_lines = []
         found_source_paths = []
         found_path_keys = set()
         reserved_destinations = set()
@@ -409,7 +410,11 @@ class FileSearcherPro:
         try:
             valid_exts = options["valid_exts"]
             with open(names_file, "r", encoding="utf-8") as names_handle:
-                lines = [line.strip() for line in names_handle if line.strip()]
+                lines = []
+                for source_line in names_handle:
+                    source_line = source_line.rstrip("\r\n")
+                    if source_line.strip():
+                        lines.append(source_line)
 
             os.makedirs(dest_dir, exist_ok=True)
 
@@ -435,8 +440,6 @@ class FileSearcherPro:
 
             indexed_count = sum(len(paths) for paths in file_map.values())
             emit_log(f"Indexed {indexed_count} matching files.")
-            report_data = [["Search Query / Item", "Found Filename", "Original Source Path"]]
-            not_found_items = []
             total_lines = len(lines)
             self.event_queue.put(("progress", (0, max(total_lines, 1), "Starting...")))
 
@@ -454,6 +457,7 @@ class FileSearcherPro:
                 else:
                     items = fields
                 matched_files = []
+                line_has_missing_item = False
                 for item in items:
                     if self.cancel_event.is_set():
                         break
@@ -470,16 +474,18 @@ class FileSearcherPro:
                     if found_paths:
                         for found_path in found_paths:
                             matched_files.append((item, found_path))
-                            report_data.append([item, os.path.basename(found_path), found_path])
                             found_key = os.path.normcase(os.path.abspath(found_path))
                             if found_key not in counted_paths:
                                 counted_paths.add(found_key)
                                 found_count += 1
                             emit_log(f"[FOUND] {item} -> {found_path}")
                     else:
-                        not_found_items.append(item)
+                        line_has_missing_item = True
                         missing_count += 1
-                        emit_log(f"[NOT FOUND] {item}")
+                        emit_log(f"[NOT FOUND] {line}")
+
+                if line_has_missing_item:
+                    not_found_lines.append(line)
 
                 if self.cancel_event.is_set():
                     break
@@ -536,14 +542,6 @@ class FileSearcherPro:
 
                 self.event_queue.put(("progress", (idx + 1, max(total_lines, 1), f"Processing line {idx + 1}/{total_lines}")))
 
-            report_path = os.path.join(dest_dir, "files_location_report.csv")
-            with open(report_path, "w", newline="", encoding="utf-8-sig") as report_file:
-                csv.writer(report_file).writerows(report_data)
-            not_found_path = os.path.join(dest_dir, "not_found_items.txt")
-            with open(not_found_path, "w", encoding="utf-8") as not_found_file:
-                if not_found_items:
-                    not_found_file.write("\n".join(not_found_items) + "\n")
-            emit_log(f"Location report saved: {report_path}")
             if options["export_found_paths"]:
                 paths_report = os.path.join(dest_dir, "found_files_paths.txt")
                 with open(paths_report, "w", encoding="utf-8") as paths_file:
@@ -556,6 +554,7 @@ class FileSearcherPro:
                 "errors": errors,
                 "found_count": found_count,
                 "missing_count": missing_count,
+                "not_found_lines": not_found_lines,
                 "found_paths": found_source_paths,
             }))
         except Exception as error:
@@ -593,6 +592,8 @@ class FileSearcherPro:
                     f"Files found: {data['found_count']}\n"
                     f"Items with no matching files: {data['missing_count']}"
                 )
+                if data["not_found_lines"]:
+                    summary += "\n\nUnmatched source lines:\n" + "\n".join(data["not_found_lines"])
                 if errors:
                     summary += f"\nFile errors: {errors}"
                 if event == "cancelled":
