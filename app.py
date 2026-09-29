@@ -482,7 +482,6 @@ class FileSearcherPro:
                     else:
                         line_has_missing_item = True
                         missing_count += 1
-                        emit_log(f"[NOT FOUND] {line}")
 
                 if line_has_missing_item:
                     not_found_lines.append(line)
@@ -560,7 +559,6 @@ class FileSearcherPro:
                 "errors": errors,
                 "found_count": found_count,
                 "missing_count": missing_count,
-                "not_found_lines": not_found_lines,
                 "found_paths": found_source_paths,
             }))
         except Exception as error:
@@ -595,15 +593,11 @@ class FileSearcherPro:
                 status_text = "Status: Cancelled" if event == "cancelled" else f"Status: Completed ({errors} errors)"
                 self.set_status(status_text)
                 summary = (
-                    f"Files found: {data['found_count']}\n"
-                    f"Items with no matching files: {data['missing_count']}"
+                    f"Total files found (Found): {data['found_count']}\n"
+                    f"Total items not found (Not Found): {data['missing_count']}"
                 )
-                if data["not_found_lines"]:
-                    summary += "\n\nUnmatched source lines:\n" + "\n".join(data["not_found_lines"])
-                if errors:
-                    summary += f"\nFile errors: {errors}"
                 if event == "cancelled":
-                    messagebox.showinfo("Cancelled", f"Processing stopped. Completed results were kept.\n\n{summary}")
+                    messagebox.showinfo("Cancelled", summary)
                 elif errors:
                     messagebox.showwarning("Completed with errors", summary)
                 else:
